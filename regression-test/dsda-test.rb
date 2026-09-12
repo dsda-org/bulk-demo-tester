@@ -124,6 +124,25 @@ RUN_ALL_IWADS = ARGV.delete("--all") ? true : false
 LEVELSTAT_COMPARE = ARGV.delete("--compare") ? true : false
 FAILED_ONLY = ARGV.any? { |arg| DSDA.failed_flag?(arg) }
 COMPLEVEL_FILTER = complevel_filter_value&.to_i
+
+# Throw an error if command is not recognised
+# If it's the same flag but slightly off show a message like:
+# "Did you mean `--compare`?" when typing `-compare`.
+remaining_flags = ARGV.select { |arg| arg.start_with?("-") }
+recognized_remaining_flags = DSDA::FAILED_FLAGS + %w[--fill-demo-folder]
+unknown_flags = remaining_flags.reject { |arg| recognized_remaining_flags.include?(arg.downcase) }
+
+unless unknown_flags.empty?
+  flag = unknown_flags.first
+  double_dash = "--#{flag.delete_prefix('-')}"
+  known_flags = %w[
+    --all --compare --retry-failed --failed-only --fill-demo-folder
+    --set-exe-path --set-old-exe-path --port --port-name --complevel --cl
+  ]
+  suggestion = known_flags.include?(double_dash.downcase) ? " Did you mean #{double_dash}?" : ""
+  abort("❌ Unknown option: #{flag}.#{suggestion} Run with --help for usage.")
+end
+
 TEST_SCOPE_LABEL = begin
   query = ARGV.find { |arg| !arg.start_with?("-") }&.strip
   if FAILED_ONLY
