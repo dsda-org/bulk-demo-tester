@@ -448,6 +448,27 @@ module DSDA
   end
 
   # state helpers
+  def self.load_selected_port
+    ports = Object.const_get(:PORTS)
+    default_port = Object.const_get(:DEFAULT_PORT)
+    path = Object.const_get(:PORT_STATE_PATH)
+    return default_port unless File.file?(path)
+
+    state = JSON.parse(File.read(path))
+    return default_port unless state.is_a?(Hash)
+
+    saved = state.fetch('port', state.fetch('port_profile', '')).to_s.downcase
+    ports.key?(saved) ? saved : default_port
+  rescue JSON::ParserError, SystemCallError
+    default_port
+  end
+
+  def self.save_selected_port(name)
+    path = Object.const_get(:PORT_STATE_PATH)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, JSON.pretty_generate({ 'port' => name }))
+  end
+
   def self.load_state(path = state_cache_path)
     default = { "last_sync" => nil, "done_wads" => {}, "done_demos" => {}, "failed_wads" => {}, "failed_demos" => {}, "wad_meta" => {} }
     return default unless File.exist?(path)

@@ -3,6 +3,7 @@
 
 require 'csv'
 require 'json'
+require 'pathname'
 require 'time'
 require 'rbconfig'
 require 'shellwords'
@@ -18,6 +19,112 @@ COMMANDS = {
   'sync'  => File.join(SCRIPT_DIR, 'dsda-sync.rb'),
   'test'  => File.join(SCRIPT_DIR, 'dsda-test.rb')
 }.freeze
+
+def load_active_port
+  DSDA.load_selected_port
+end
+
+def save_active_port
+  DSDA.save_selected_port($active_port)
+rescue SystemCallError => e
+  puts yellow("Warning: could not remember port: #{e.message}")
+end
+
+$active_port = load_active_port
+
+def active_port
+  PORTS.fetch($active_port)
+end
+
+def display_path(path)
+  Pathname.new(path).relative_path_from(Pathname.new(File.expand_path('..', SCRIPT_DIR))).to_s
+rescue ArgumentError
+  path
+end
+
+def print_ports
+  puts
+  puts 'Available ports:'
+  PORTS.each do |name, port|
+    marker = name == $active_port ? '*' : ' '
+    nickname = port[:nickname]
+    nickname_label = nickname.to_s.empty? ? '' : " (#{nickname})"
+    puts "  #{marker} #{name}#{nickname_label}"
+  end
+  puts
+  puts 'Switch with: port <name>'
+end
+
+def print_port_help
+  puts <<~HELP
+
+    Usage:
+      port
+      port NAME
+
+    List available ports or switch the globally selected port by its full name
+    or nickname. The selection is remembered for dsda-start and dsda-test.
+
+    Examples:
+      port dsda
+      port nyan
+
+    Options:
+      -h, --h, -help, --help
+          Show this help.
+  HELP
+end
+
+def select_port(name)
+  requested = name.to_s.strip.downcase
+  canonical_name =
+    if PORTS.key?(requested)
+      requested
+    else
+      PORTS.find { |_port_name, port| port[:nickname].to_s.downcase == requested }&.first
+    end
+
+  unless canonical_name
+    puts red("Unknown port: #{name}")
+    print_ports
+    return false
+  end
+
+  $active_port = canonical_name
+  save_active_port
+  port = active_port
+  puts green("Active port: #{$active_port}")
+  puts "  New: #{display_path(port.fetch(:exe))}"
+  puts "  Old: #{display_path(port.fetch(:old_exe))}"
+
+  missing = %i[exe old_exe].map { |key| port.fetch(key) }.reject { |path| File.file?(path) }
+  unless missing.empty?
+    puts yellow('Warning: the following executable(s) have not been built:')
+    missing.each { |path| puts "  #{display_path(path)}" }
+  end
+
+  true
+end
+
+def prompt_port_switch
+  loop do
+    puts
+    puts yellow('Would you like to switch ports?')
+    $stdout.write('Port name or nickname (n to cancel) > ')
+    $stdout.flush
+
+    input = STDIN.gets
+    return unless input
+
+    requested = input.strip
+    if requested.empty? || requested.casecmp?('n')
+      puts yellow('Port switch cancelled.')
+      return
+    end
+
+    return if select_port(requested)
+  end
+end
 
 def load_last_sync
   state = load_sync_state
@@ -87,7 +194,12 @@ def last_test_result
     failed = state['failed'].to_i
     total = state['total'].to_i
     status = state['status'].to_s
-    suffix = scope.empty? ? '' : " (#{scope}, #{total} demos)"
+    port = state['port'].to_s
+    details = []
+    details << scope unless scope.empty?
+    details << "#{total} demos"
+    details << port unless port.empty?
+    suffix = details.empty? ? '' : " (#{details.join(', ')})"
 
     return status == 'pass' ? green("pass#{suffix}") : red("fail#{suffix}, #{failed} failed")
   end
@@ -110,11 +222,13 @@ def print_dashboard
   puts
   puts "Last sync: #{format_dashboard_time(load_last_sync)}"
   puts "Last test result: #{last_test_result}"
+  puts "Active port: #{$active_port}"
   puts
   puts 'Type the program you would like to run:'
   puts '  index [options]            -   Get the current DSDA Archive demo database'
   puts '  sync  [selector/options]   -   Download demos and WADs from the DSDA Archive'
   puts '  test  [selector/options]   -   Run the current exe against demos, with regression exe comparison'
+  puts '  port  [name]               -   List or switch executable ports'
   puts
   puts 'Use -h or --help after a program name for advanced parameters.'
   puts 'Type "q" / "exit" to close.'
@@ -126,6 +240,11 @@ def run_program(command, args)
   unless script
     puts red("Unknown command: #{command}")
     return false
+  end
+
+  args = args.dup
+  if command == 'test'
+    args += ['--port', $active_port] unless args.include?('--port')
   end
 
   puts
@@ -218,6 +337,20 @@ def handle_command(words, interactive: false)
 
   if DSDA.help_flag?(command) || %w[help ?].include?(command)
     print_dashboard
+    return :continue
+  end
+
+  if command == 'port'
+    name = words.shift
+    if name && (DSDA.help_flag?(name) || %w[help ?].include?(name.downcase))
+      print_port_help
+      press_enter_to_continue if interactive
+    elsif name
+      select_port(name)
+    else
+      print_ports
+      prompt_port_switch if interactive
+    end
     return :continue
   end
 

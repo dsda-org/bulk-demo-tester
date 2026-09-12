@@ -1,11 +1,31 @@
 # frozen_string_literal: true
 
-# Paths to engines
-EXE_PATH         = File.expand_path('../../build/nyan-doom.exe', __dir__)
-OLD_EXE_PATH     = File.expand_path('../../build/build-old/dsda-doom.exe', __dir__)
+# Core build path
+BUILD_PATH = File.expand_path('../build', __dir__)
 
-# Core build/data paths
-BUILD_PATH          = File.expand_path('../../build', __dir__)
+# Ports available in dsda-start
+PORTS = {
+  'dsda-doom' => {
+    nickname: 'dsda',
+    exe: File.join(BUILD_PATH, 'dsda-doom', 'dsda-doom.exe'),
+    old_exe: File.join(BUILD_PATH, 'old', 'dsda-doom', 'dsda-doom.exe')
+  },
+  'nyan-doom' => {
+    nickname: 'nyan',
+    exe: File.join(BUILD_PATH, 'nyan-doom', 'nyan-doom.exe'),
+    old_exe: File.join(BUILD_PATH, 'old', 'dsda-doom', 'dsda-doom.exe')
+  }
+}.freeze
+
+DEFAULT_PORT = 'dsda-doom'
+PORT_STATE_PATH = File.expand_path('../cache/port_state.json', __dir__)
+
+# default port settings
+# dsda-test replaces them with the globally selected port (or explicit command-line overrides)
+EXE_PATH     = PORTS.fetch(DEFAULT_PORT).fetch(:exe)
+OLD_EXE_PATH = PORTS.fetch(DEFAULT_PORT).fetch(:old_exe)
+
+# Core data paths
 IWAD_WAD_PATH       = File.expand_path('wads/', __dir__)
 EXTRA_WAD_PATH      = File.expand_path('wads/EX/', __dir__)
 COMMERCIAL_WAD_PATH = File.expand_path('wads/EX/CM/', __dir__)

@@ -47,6 +47,12 @@ def print_help
       --set-old-exe-path PATH
           Override the old/reference engine executable for this run.
 
+      --port NAME
+          Select a configured port by its name or nickname.
+
+      --port-name NAME
+          Override only the port name recorded in the saved test summary.
+
       --compare
           Run the old/reference engine even when the new engine passes, then compare levelstat output.
 
@@ -88,7 +94,27 @@ end
 
 exe_path_override = consume_path_option!(%w[--set-exe-path])
 old_exe_path_override = consume_path_option!(%w[--set-old-exe-path])
+port_option = consume_value_option!(%w[--port])
+port_name_option = consume_value_option!(%w[--port-name])
 complevel_filter_value = consume_value_option!(%w[--complevel --cl])
+
+selected_port_name = DSDA.load_selected_port
+if port_option
+  requested_port = port_option.strip.downcase
+  selected_port_name =
+    if PORTS.key?(requested_port)
+      requested_port
+    else
+      PORTS.find { |_name, port| port[:nickname].to_s.downcase == requested_port }&.first
+    end
+
+  abort("❌ Unknown port: #{port_option.inspect}") unless selected_port_name
+  begin
+    DSDA.save_selected_port(selected_port_name)
+  rescue SystemCallError => e
+    warn("⚠️ Could not remember port: #{e.message}")
+  end
+end
 
 if complevel_filter_value && complevel_filter_value !~ /\A\d+\z/
   abort("❌ Invalid complevel: #{complevel_filter_value.inspect} (expected a number)")
@@ -111,14 +137,28 @@ TEST_SCOPE_LABEL = begin
   end
 end
 
-if exe_path_override
+selected_port = PORTS[selected_port_name]
+
+if selected_port || exe_path_override
   Object.send(:remove_const, :EXE_PATH)
-  EXE_PATH = exe_path_override
+  EXE_PATH = exe_path_override || selected_port.fetch(:exe)
 end
 
-if old_exe_path_override
+if selected_port || old_exe_path_override
   Object.send(:remove_const, :OLD_EXE_PATH)
-  OLD_EXE_PATH = old_exe_path_override
+  OLD_EXE_PATH = old_exe_path_override || selected_port.fetch(:old_exe)
+end
+
+TEST_PORT_NAME = begin
+  configured_name = PORTS.find do |_name, port|
+    File.expand_path(port.fetch(:exe)).casecmp?(File.expand_path(EXE_PATH))
+  end&.first
+
+  if !port_name_option.to_s.strip.empty?
+    port_name_option.strip
+  else
+    selected_port_name || configured_name || File.basename(EXE_PATH, File.extname(EXE_PATH))
+  end
 end
 
 # ============================================================
@@ -2665,13 +2705,14 @@ puts "#{reg_summary}\n"
 puts "⏱️ Time elapsed: #{format_duration(duration)}\n"
 puts "⚙️ Used #{MAX_CORES} of #{TOTAL_CORES} cores\n"
 
-def write_test_state(scope:, status:, failed:, total:, passed:, duration:, regressions:)
+def write_test_state(scope:, port:, status:, failed:, total:, passed:, duration:, regressions:)
   FileUtils.mkdir_p(File.dirname(DSDA.test_state_path))
   File.write(
     DSDA.test_state_path,
     JSON.pretty_generate({
       "updated_at" => Time.now.utc.iso8601,
       "scope" => scope,
+      "port" => port,
       "status" => status,
       "failed" => failed,
       "total" => total,
@@ -2684,6 +2725,7 @@ end
 
 write_test_state(
   scope: TEST_SCOPE_LABEL,
+  port: TEST_PORT_NAME,
   status: full_pass ? "pass" : "fail",
   failed: failed,
   total: total,
