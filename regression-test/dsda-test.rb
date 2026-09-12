@@ -457,13 +457,20 @@ $print_mutex = Mutex.new
 
 def thread_log(log)
   if SINGLE_FOLDER_MODE
-    # print directly (no buffering)
     msg = StringIO.new
-    $stdout = msg
-    yield
-    $stdout = STDOUT
-    text = msg.string.strip
-    puts text unless text.empty?
+    $print_mutex.synchronize do
+      clear_live_status if defined?(clear_live_status)
+      original_stdout = $stdout
+      begin
+        $stdout = msg
+        yield
+      ensure
+        $stdout = original_stdout
+      end
+      text = msg.string.strip
+      puts text unless text.empty?
+      render_live_status if defined?(render_live_status)
+    end
   else
     # existing buffered logging behavior
     msg = StringIO.new
@@ -478,8 +485,11 @@ def log_line(log, text)
   return if text.nil? || text.empty?
 
   if SINGLE_FOLDER_MODE
-    # direct live output
-    puts text
+    $print_mutex.synchronize do
+      clear_live_status if defined?(clear_live_status)
+      puts text
+      render_live_status if defined?(render_live_status)
+    end
   else
     # buffered per-thread output
     log << text
@@ -1749,10 +1759,81 @@ $total_sets = demo_folders.size
 $completed_sets = 0
 $total_wads = wad_groups.size
 $completed_wads = 0
+$remaining_wads = wad_groups.keys.dup
+$failure_count = 0
+$regression_count = 0
 
-$last_progress_time = Time.now
 $progress_mutex = Mutex.new
-global_start_time = Time.now
+$global_start_time = Time.now
+$live_status_enabled = $stdout.tty?
+$live_status_visible = false
+$live_status_stop = false
+
+def clear_live_status
+  return unless $live_status_enabled && $live_status_visible
+
+  print "\r\e[2K"
+  3.times { print "\e[1A\r\e[2K" }
+  $live_status_visible = false
+end
+
+def live_status_label(count, singular, plural = "#{singular}s")
+  count == 1 ? singular : plural
+end
+
+def render_live_status
+  return unless $live_status_enabled
+
+  completed, total_sets, completed_wads, remaining_wad, failure_count, regression_count =
+    $progress_mutex.synchronize do
+      [
+        $completed_sets,
+        $total_sets,
+        $completed_wads,
+        $remaining_wads.first&.dup,
+        $failure_count,
+        $regression_count
+      ]
+    end
+
+  total = [total_sets, 1].max
+  percent = completed.to_f / total * 100
+  filled = [(percent / 5).floor, 20].min
+  bar = ('█' * filled) + ('░' * (20 - filled))
+  folders_left = [total_sets - completed, 0].max
+  wads_left = [$total_wads - completed_wads, 0].max
+  remaining_wad = nil unless wads_left == 1
+  wad_status = "#{wads_left} #{live_status_label(wads_left, 'WAD')} left"
+  wad_status += " (#{remaining_wad.join('/')})" if remaining_wad
+  elapsed = format_status_duration(Time.now - $global_start_time)
+  current_time = Time.now.strftime('%I:%M %p')
+
+  first_line = orange(
+    "⏳ [#{bar}] #{percent.round(1)}% │ " \
+    "#{folders_left} #{live_status_label(folders_left, 'folder')} left │ " \
+    "#{wad_status}"
+  )
+
+  healthy = failure_count.zero? && regression_count.zero?
+  icon = healthy ? '✅' : '❌'
+  failure_text = "#{failure_count} #{live_status_label(failure_count, 'failure')}"
+  regression_text = "#{regression_count} #{live_status_label(regression_count, 'regression')}"
+  failure_text = failure_count.zero? ? green(failure_text) : red(failure_text)
+  regression_text = regression_count.zero? ? green(regression_text) : red(regression_text)
+  second_line = "#{icon} #{failure_text}#{orange(' │ ')}#{regression_text}" \
+                "#{orange(" │ #{current_time} - #{elapsed} elapsed")}"
+
+  status_lines = [
+    orange('🚦 STATUS'),
+    orange('-' * 70),
+    first_line,
+    second_line
+  ]
+
+  print status_lines.join("\n")
+  $stdout.flush
+  $live_status_visible = true
+end
 
 puts "📊 Tracking progress per demo folder (#{$total_sets} total sets across #{$total_wads} WADs)"
 
@@ -1764,26 +1845,19 @@ puts ("🚗 Starting bulk demo regression test")
 puts ("----------------------------------------------------------------------\n")
 
 # ============================================================
-# 🫀 Background heartbeat thread (keeps console alive)
+# Live progress and result status
 # ============================================================
-Thread.new do
-  loop do
-    sleep HEARTBEAT_SECS
-    $progress_mutex.synchronize do
+$print_mutex.synchronize { render_live_status }
 
-      # stop once everything is done
-      break if $completed_sets >= $total_sets
-
-      percent = ($completed_sets.to_f / [$total_sets, 1].max * 100)
-      percent_str = percent.to_i == percent ? percent.to_i.to_s : percent.round(1).to_s
-      elapsed = format_duration(Time.now - global_start_time)
-      current_time = Time.now.strftime("%I:%M %p")
-      sets_left   = $total_sets - $completed_sets
-      wads_left   = $total_wads - $completed_wads
+status_thread = if $live_status_enabled
+  Thread.new do
+    loop do
+      sleep 1
+      break if $live_status_stop
 
       $print_mutex.synchronize do
-        # puts orange("💤 Still working... #{$completed_sets} / #{$total_sets} demo folders (#{percent_str}%) [#{current_time}] - #{elapsed} elapsed")
-        puts orange("💤 Still working... #{sets_left} demo folders, #{wads_left} WADs left (#{percent_str}%) [#{current_time}] - #{elapsed} elapsed")
+        clear_live_status
+        render_live_status
       end
     end
   end
@@ -2093,7 +2167,7 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
       # Completely silence "manual" folders unless they actually contain demos
       if File.basename(demo_folder_path).casecmp?("manual")
         # Count as a valid completed folder, but produce no output
-        $completed_sets += 1
+        $progress_mutex.synchronize { $completed_sets += 1 }
         next
       end
 
@@ -2105,7 +2179,7 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
       # Other empty folders: silently skip too
       if demo_lmps.empty?
         # Count as complete, but produce no noisy output
-        $completed_sets += 1
+        $progress_mutex.synchronize { $completed_sets += 1 }
         next
       end
 
@@ -2594,7 +2668,7 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
           )
         end
       end
-      $completed_sets += 1
+      $progress_mutex.synchronize { $completed_sets += 1 }
     end
 
   rescue => e
@@ -2606,47 +2680,39 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
     failed = folder_failed || local_results.any? { |r| r[:match].to_s.start_with?("fail") }
     colorize = failed ? method(:red) : method(:green)
 
+    $progress_mutex.synchronize do
+      $completed_wads += 1
+      $remaining_wads.delete([iwad, wadname])
+      $failure_count += local_results.count { |r| r[:match].to_s.start_with?("fail") }
+      $regression_count += local_results.count { |r| r[:match].to_s.include?("regression") }
+    end
+    results_mutex.synchronize { results.concat(local_results) }
+
     duration = Time.now - wad_start_time
     message  = "#{failed ? '❌ FAIL' : '✅ PASS'} - finished WAD #{iwad}/#{wadname} (#{format_duration(duration)})"
     log_line(log, colorize.call(message))
 
     # Print entire WAD log at once
     $print_mutex.synchronize do
+      clear_live_status
       if SINGLE_FOLDER_MODE
         puts log.join("")   # no leading newline
       else
         puts log.join("\n")   # keep the spacing in normal mode
       end
       puts colorize.call("----------------------------------------------------------------------\n")
+      render_live_status if $completed_sets < $total_sets
     end
-
-    # Mark this WAD complete and print an updated progress snapshot.
-    $progress_mutex.synchronize do
-      $completed_wads += 1
-
-      if Time.now - $last_progress_time >= 5 && $completed_sets < $total_sets
-        $last_progress_time = Time.now
-        elapsed     = format_duration(Time.now - global_start_time)
-        percent     = ($completed_sets.to_f / [$total_sets, 1].max * 100)
-        percent_str = percent.to_i == percent ? percent.to_i.to_s : percent.round(1).to_s
-        sets_left   = $total_sets - $completed_sets
-        wads_left   = $total_wads - $completed_wads
-
-        $print_mutex.synchronize do
-          # puts orange("🟠 Progress: #{$completed_sets} / #{$total_sets} demo folders (#{percent_str}%) - #{elapsed} elapsed")
-          puts orange("🟠 Progress: #{sets_left} demo folders, #{wads_left} WADs left (#{percent_str}%) - #{elapsed} elapsed")
-          puts orange("----------------------------------------------------------------------\n")
-        end
-      end
-    end
-
-    results_mutex.synchronize { results.concat(local_results) }
   end
 end
 
 # ============================================================
 # Wait for all threads to settle and print final progress
 # ============================================================
+
+$live_status_stop = true
+status_thread&.join
+$print_mutex.synchronize { clear_live_status }
 
 percent = ($completed_sets.to_f / [$total_sets, 1].max * 100)
 percent_str = percent.to_i == percent ? percent.to_i.to_s : percent.round(1).to_s
@@ -2675,7 +2741,7 @@ failed_only_unresolved_skips = results.count do |r|
 end
 passed = total - failed
 
-duration = Time.now - global_start_time
+duration = Time.now - $global_start_time
 percent = (passed.to_f / [total, 1].max * 100)
 percent = percent % 1 == 0 ? percent.to_i : percent.round(1)
 

@@ -80,6 +80,11 @@ module DSDA
     end
   end
 
+  # avoid using .0 for second on status
+  def format_status_duration(seconds)
+    format_duration(seconds).sub(/\.0 seconds\z/, ' seconds')
+  end
+
   # ============================================================
   # Color helpers
   # ============================================================

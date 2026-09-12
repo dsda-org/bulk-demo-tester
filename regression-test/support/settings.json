@@ -3,7 +3,6 @@
     "port": "dsda-doom",
     "iwad": "doom2.wad",
     "timeout_secs": 900,
-    "heartbeat_secs": 30,
     "cpu_core_percent": 0.5
   },
   "excluded_demo_zips": {

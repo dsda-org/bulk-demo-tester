@@ -13,7 +13,6 @@ DEFAULTS = SETTINGS.fetch('defaults')
 DEFAULT_PORT   = DEFAULTS.fetch('port')
 DEFAULT_IWAD   = DEFAULTS.fetch('iwad')
 TIMEOUT_SECS   = DEFAULTS.fetch('timeout_secs')
-HEARTBEAT_SECS = DEFAULTS.fetch('heartbeat_secs')
 
 # Amount of CPU cores to use (default: 50% of total)
 CPU_CORE_PERCENT = DEFAULTS.fetch('cpu_core_percent')
