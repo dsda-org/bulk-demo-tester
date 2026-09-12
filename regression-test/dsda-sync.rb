@@ -7,8 +7,7 @@ include DSDA
 require 'optparse'
 
 SCRIPT_DIR = __dir__
-DEST_ROOT = File.expand_path('support/demos', SCRIPT_DIR)
-FileUtils.mkdir_p(DEST_ROOT)
+FileUtils.mkdir_p(DEMOS_ROOT)
 FileUtils.mkdir_p(File.dirname(DSDA.index_cache_path))
 FileUtils.mkdir_p(File.dirname(DSDA.state_cache_path))
 
@@ -165,7 +164,7 @@ def sync_single_wad(wad_slug, state:, force: false, skip_wads: false, skip_demos
     puts "   ZIP:  (none — no downloadable WAD file)"
   end
 
-  wad_root = File.join(DEST_ROOT, iwad, wad_name)
+  wad_root = File.join(DEMOS_ROOT, iwad, wad_name)
   wad_dir  = File.join(wad_root, "#{wad_name}-wad") # keep wad dir distinct with -wad suffix
   FileUtils.mkdir_p(wad_root)
 

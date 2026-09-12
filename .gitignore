@@ -148,9 +148,23 @@ CMakePresets.json
 
 # Regression Test Files
 regression-test/7z.log
-regression-test/cache/
 regression-test/support/cache/
+
+# demos
 regression-test/support/demos/
+
+# ports
+regression-test/ports/**
+!regression-test/ports/ports.json
+
+# Ignore results/failures
+regression-test/csv/**
+!regression-test/csv/0-overrides.csv
+
+# Ignore sync warning log
+regression-test/dsda-sync-warning.txt
+
+# wads
 regression-test/support/wads/*.wad
 regression-test/support/wads/*.WAD
 regression-test/support/wads/EX/CM/*.wad
@@ -160,11 +174,6 @@ regression-test/support/wads/EX/CM/ML/*.WAD
 regression-test/support/wads/EX/CM/ML/*.txt
 regression-test/support/wads/EX/CM/ML/*.TXT
 
-# Ignore results/failures
-regression-test/data-export/**
-
-# Ignore sync warning log
-regression-test/dsda-sync-warning.txt
 
 # Ignore super large wads (you must get manually)
 regression-test/support/wads/EX/Eviternity II.wad

@@ -13,25 +13,24 @@ module DSDA
   USER_AGENT = "NYAN-DSDA-SYNC/1.0"
   PER_PAGE = 200
 
-  # caches/state paths
-  def self.state_cache_path(base_dir = __dir__ + '/..')
-    File.expand_path('cache/dsda_sync_state.json', base_dir)
+  def self.state_cache_path
+    Object.const_get(:SYNC_STATE_PATH)
   end
 
-  def self.test_state_path(base_dir = __dir__ + '/..')
-    File.expand_path('cache/dsda_test_state.json', base_dir)
+  def self.test_state_path
+    Object.const_get(:TEST_STATE_PATH)
   end
 
-  def self.index_cache_path(base_dir = __dir__ + '/..')
-    File.expand_path('cache/dsda_demo_index.json', base_dir)
+  def self.index_cache_path
+    Object.const_get(:DEMO_INDEX_PATH)
   end
 
-  def self.sync_warning_path(base_dir = __dir__ + '/..')
-    File.expand_path('dsda-sync-warning.txt', base_dir)
+  def self.sync_warning_path
+    Object.const_get(:SYNC_WARNING_PATH)
   end
 
-  def self.demo_root_path(base_dir = __dir__ + '/..')
-    File.expand_path('support/demos', base_dir)
+  def self.demo_root_path
+    Object.const_get(:DEMOS_ROOT)
   end
 
   def self.display_path(path, base_dir = demo_root_path)
@@ -334,7 +333,7 @@ module DSDA
       short = wad_meta["short_name"] || wad
       iwad  = wad_meta["iwad"] || "doom2"
 
-      wad_root = File.join(File.expand_path("..", __dir__), "support/demos", iwad, short)
+      wad_root = File.join(demo_root_path, iwad, short)
       FileUtils.mkdir_p(wad_root)
 
       entries.each do |demo_id, meta|
@@ -451,22 +450,23 @@ module DSDA
   def self.load_selected_port
     ports = Object.const_get(:PORTS)
     default_port = Object.const_get(:DEFAULT_PORT)
-    path = Object.const_get(:PORT_STATE_PATH)
-    return default_port unless File.file?(path)
-
-    state = JSON.parse(File.read(path))
-    return default_port unless state.is_a?(Hash)
-
-    saved = state.fetch('port', state.fetch('port_profile', '')).to_s.downcase
-    ports.key?(saved) ? saved : default_port
-  rescue JSON::ParserError, SystemCallError
-    default_port
+    ports.key?(default_port) ? default_port : ports.keys.first
   end
 
   def self.save_selected_port(name)
-    path = Object.const_get(:PORT_STATE_PATH)
-    FileUtils.mkdir_p(File.dirname(path))
-    File.write(path, JSON.pretty_generate({ 'port' => name }))
+    settings = Object.const_get(:SETTINGS)
+    settings_path = Object.const_get(:SETTINGS_PATH)
+    settings.fetch('defaults')['port'] = name
+
+    # keep json formatted with single lines
+    formatted = JSON.pretty_generate(settings).gsub(
+      /\[\n((?:\s+"(?:\\.|[^"\\])*",?\n)+)\s*\]/
+    ) do
+      values = Regexp.last_match(1).lines.map { |line| line.strip.delete_suffix(',') }
+      "[#{values.join(', ')}]"
+    end
+
+    atomic_write(settings_path, "#{formatted}\n")
   end
 
   def self.load_state(path = state_cache_path)

@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # spec/dsda-index.rb
 require_relative "support/dsda-common"
+require_relative "support/dsda-test-prefs"
 include DSDA
 
 require 'optparse'

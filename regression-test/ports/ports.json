@@ -1,0 +1,12 @@
+{
+  "dsda-doom": {
+    "nickname": "dsda",
+    "exe": "dsda-doom/dsda-doom.exe",
+    "old_exe": "old/dsda-doom/dsda-doom.exe"
+  },
+  "nyan-doom": {
+    "nickname": "nyan",
+    "exe": "nyan-doom/nyan-doom.exe",
+    "old_exe": "old/dsda-doom/dsda-doom.exe"
+  }
+}

@@ -15,6 +15,7 @@ require 'securerandom'
 require 'json'
 require_relative 'support/dsda-common'
 require_relative 'support/dsda-test-prefs'
+require_relative 'support/dsda-port-prefs'
 include DSDA
 
 def print_help
@@ -491,14 +492,13 @@ end
 def backup_csv(file_path)
   return unless File.exist?(file_path)
 
-  backup_folder =
-    case File.basename(file_path).downcase
-    when "results.csv"  then "BU-results"
-    when "failures.csv" then "BU-failures"
-    else "BU"
+  bu_dir =
+    case File.expand_path(file_path)
+    when File.expand_path(RESULTS_OUTPUT)  then RESULTS_BACKUP_PATH
+    when File.expand_path(FAILURES_OUTPUT) then FAILURES_BACKUP_PATH
+    else File.join(File.dirname(file_path), "BU")
     end
 
-  bu_dir = File.join(File.dirname(file_path), backup_folder)
   FileUtils.mkdir_p(bu_dir)
 
   timestamp = Time.now.strftime("%Y%m%d-%H%M%S")
@@ -565,9 +565,9 @@ puts "\n"
 puts ("----------------------------------------------------------------------")
 puts ("🟢 Setup bulk demo regression test")
 
-# Clean tmp_demos on startup to avoid stale data
+# Clean temp demos cache on startup to avoid stale data
 begin
-  FileUtils.rm_rf(TMP_ROOT)
+  FileUtils.rm_rf(DEMOS_CACHE_ROOT)
 rescue
 end
 
@@ -622,7 +622,7 @@ end
 if ARGV.include?("--fill-demo-folder")
   puts "🔧 Filling missing DemoFolder values in overrides.csv..."
 
-  override_path = OVERRIDE_IMPORT   # your path: spec/data-export/overrides.csv
+  override_path = OVERRIDE_IMPORT
 
   rows = CSV.read(override_path, headers: true)
   headers = rows.headers
@@ -683,7 +683,7 @@ def merge_failed_rows_into_results(failed_rows, results_path)
   # 1. Load existing results.csv
   # ------------------------------------------------------------
   unless File.exist?(results_path)
-    puts red("❌ ERROR: results.csv not found at #{results_path}")
+    puts red("❌ ERROR: 1-results.csv not found at #{results_path}")
     return
   end
 
@@ -697,7 +697,7 @@ def merge_failed_rows_into_results(failed_rows, results_path)
   end
 
   if existing_rows.empty?
-    puts red("❌ ERROR: results.csv appears empty")
+    puts red("❌ ERROR: 1-results.csv appears empty")
     return
   end
 
@@ -1144,7 +1144,7 @@ def execute_demo_process(cmd:, worker_dir:, exe:, log:)
 
   begin
     # SAFETY CHECK - prevent accidental overwrite of EXE output.
-    if worker_dir.start_with?(BUILD_PATH)
+    if worker_dir.start_with?(PORTS_PATH)
       raise "CRITICAL ERROR: worker_dir resolved to build folder: #{worker_dir}"
     end
 
@@ -1300,8 +1300,8 @@ def run_demo_with_exe(
   FileUtils.mkdir_p(worker_dir)
 
   # --- INSERT THIS ---
-  if worker_dir.start_with?(BUILD_PATH)
-    raise "CRITICAL: worker_dir='#{worker_dir}' is inside BUILD_PATH! Aborting to avoid overwriting executables."
+  if worker_dir.start_with?(PORTS_PATH)
+    raise "CRITICAL: worker_dir='#{worker_dir}' is inside PORTS_PATH! Aborting to avoid overwriting executables."
   end
   # -------------------
 
@@ -1634,7 +1634,7 @@ FAILED_DEMOS = load_failures_list
 FAILED_ONLY_UNRESOLVED = []
 
 if FAILED_ONLY
-  puts "🔁 Running ONLY failed demos from failures.csv..."
+  puts "🔁 Running ONLY failed demos from 2-failures.csv..."
   total = FAILED_DEMOS.values.map(&:size).sum
 
   # check if there are any failed demos, exit if not
@@ -1740,7 +1740,7 @@ results = []
 TOTAL_CORES = Parallel.processor_count
 
 # Use 75% of cores by default to avoid system slowdown
-MAX_CORES = [(TOTAL_CORES * PERCENT_OF_CORES).floor, 1].max
+MAX_CORES = [(TOTAL_CORES * CPU_CORE_PERCENT).floor, 1].max
 
 puts "⚙️ Parallel mode: detected #{TOTAL_CORES} cores, using #{MAX_CORES} threads"
 
@@ -2143,7 +2143,7 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
           # ==========================================================
 
           worker_dir = File.join(
-            TMP_ROOT,
+            DEMOS_CACHE_ROOT,
             env[:iwad_name],
             env[:wad_name],
             File.basename(env[:demo_folder_path]),
@@ -2702,15 +2702,15 @@ end
 puts "\n#{summary}"
 
 if FAILED_ONLY && total == 0
-  puts red("❌ Failed-only produced no runnable results; keeping failures.csv")
+  puts red("❌ Failed-only produced no runnable results; keeping 2-failures.csv")
 end
 
 if FAILED_ONLY_UNRESOLVED.any?
-  puts red("❌ Failed-only could not locate #{FAILED_ONLY_UNRESOLVED.size} demo#{'s' if FAILED_ONLY_UNRESOLVED.size != 1}; keeping failures.csv")
+  puts red("❌ Failed-only could not locate #{FAILED_ONLY_UNRESOLVED.size} demo#{'s' if FAILED_ONLY_UNRESOLVED.size != 1}; keeping 2-failures.csv")
 end
 
 if FAILED_ONLY && failed_only_unresolved_skips > 0
-  puts yellow("⚠️ Failed-only produced #{failed_only_unresolved_skips} unresolved skipped result#{'s' if failed_only_unresolved_skips != 1}; keeping failures.csv")
+  puts yellow("⚠️ Failed-only produced #{failed_only_unresolved_skips} unresolved skipped result#{'s' if failed_only_unresolved_skips != 1}; keeping 2-failures.csv")
 end
 
 reg_summary = if regressions == 0
@@ -2838,7 +2838,7 @@ end
 def try_save_all_csvs(sorted, failures, preserve_failures: false)
   # Base task list always includes results.csv
   tasks = [
-    { name: "results", output: CSV_OUTPUT, data: sorted, merge_failed_only: true }
+    { name: "results", output: RESULTS_OUTPUT, data: sorted, merge_failed_only: true }
   ]
 
   # Only add failures.csv if there are real failures

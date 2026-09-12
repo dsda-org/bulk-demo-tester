@@ -9,6 +9,7 @@ require 'rbconfig'
 require 'shellwords'
 require_relative 'support/dsda-common'
 require_relative 'support/dsda-test-prefs'
+require_relative 'support/dsda-port-prefs'
 include DSDA
 
 $stdout.sync = true
@@ -207,7 +208,7 @@ def last_test_result
   failure_count = count_csv_rows(FAILURES_OUTPUT)
   if failure_count.positive?
     red("fail (#{failure_count} failure#{'s' if failure_count != 1})")
-  elsif File.exist?(CSV_OUTPUT)
+  elsif File.exist?(RESULTS_OUTPUT)
     green('pass')
   else
     yellow('unknown')
@@ -321,7 +322,7 @@ def post_run_prompts(command, args)
 
   if command == 'test' && !failed_only && test_failed?
     puts
-    puts red('Seems the demo test failed. Please take a look at failures.csv, and check your port or overrides.csv.')
+    puts red('Seems the demo test failed. Please take a look at 2-failures.csv, and check your port or 0-overrides.csv.')
     if prompt_yes_no('Would you like to re-test the failed demos?')
       retry_args = ['--failed-only']
       retry_args << '--compare' if compare

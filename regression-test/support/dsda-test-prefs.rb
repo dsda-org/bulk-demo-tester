@@ -1,29 +1,34 @@
 # frozen_string_literal: true
+require 'json'
 
-# Core build path
-BUILD_PATH = File.expand_path('../build', __dir__)
+# ports path
+PORTS_PATH = File.expand_path('../ports', __dir__)
 
-# Ports available in dsda-start
-PORTS = {
-  'dsda-doom' => {
-    nickname: 'dsda',
-    exe: File.join(BUILD_PATH, 'dsda-doom', 'dsda-doom.exe'),
-    old_exe: File.join(BUILD_PATH, 'old', 'dsda-doom', 'dsda-doom.exe')
-  },
-  'nyan-doom' => {
-    nickname: 'nyan',
-    exe: File.join(BUILD_PATH, 'nyan-doom', 'nyan-doom.exe'),
-    old_exe: File.join(BUILD_PATH, 'old', 'dsda-doom', 'dsda-doom.exe')
-  }
-}.freeze
+# load settings file
+SETTINGS_PATH = File.expand_path('settings.json', __dir__)
+SETTINGS = JSON.parse(File.read(SETTINGS_PATH))
 
-DEFAULT_PORT = 'dsda-doom'
-PORT_STATE_PATH = File.expand_path('../cache/port_state.json', __dir__)
+# Defaults
+DEFAULTS = SETTINGS.fetch('defaults')
+DEFAULT_PORT   = DEFAULTS.fetch('port')
+DEFAULT_IWAD   = DEFAULTS.fetch('iwad')
+TIMEOUT_SECS   = DEFAULTS.fetch('timeout_secs')
+HEARTBEAT_SECS = DEFAULTS.fetch('heartbeat_secs')
 
-# default port settings
-# dsda-test replaces them with the globally selected port (or explicit command-line overrides)
-EXE_PATH     = PORTS.fetch(DEFAULT_PORT).fetch(:exe)
-OLD_EXE_PATH = PORTS.fetch(DEFAULT_PORT).fetch(:old_exe)
+# Amount of CPU cores to use (default: 50% of total)
+CPU_CORE_PERCENT = DEFAULTS.fetch('cpu_core_percent')
+unless CPU_CORE_PERCENT.between?(0.0, 1.0)
+  raise ArgumentError, 'defaults.cpu_core_percent must be between 0.0 and 1.0'
+end
+
+# test state paths
+CACHE_PATH = File.expand_path('cache', __dir__)
+DEMO_INDEX_PATH = File.join(CACHE_PATH, 'demo_index.json')
+SYNC_STATE_PATH = File.join(CACHE_PATH, 'sync_state.json')
+TEST_STATE_PATH = File.join(CACHE_PATH, 'test_state.json')
+
+# sync paths
+SYNC_WARNING_PATH = File.expand_path('../dsda-sync-warning.txt', __dir__)
 
 # Core data paths
 IWAD_WAD_PATH       = File.expand_path('wads/', __dir__)
@@ -32,72 +37,33 @@ COMMERCIAL_WAD_PATH = File.expand_path('wads/EX/CM/', __dir__)
 MASTER_LEVELS_PATH  = File.expand_path('wads/EX/CM/ML/', __dir__)
 
 # Demo locations + tmp workspace
-DEMOS_ROOT       = File.expand_path('demos', __dir__)
-TMP_ROOT         = File.expand_path('cache/tmp', __dir__)
+DEMOS_ROOT        = File.expand_path('demos', __dir__)
+DEMOS_CACHE_ROOT  = File.join(CACHE_PATH, 'tmp')
 
-# Override file
-OVERRIDE_IMPORT  = File.expand_path("../overrides.csv", __dir__)
+# CSV Overrides / Output files
+DATA_CSV_PATH = File.expand_path('../csv', __dir__)
 
-# Output files
-CSV_OUTPUT       = File.expand_path('../data-export/results.csv', __dir__)
-FAILURES_OUTPUT  = File.expand_path('../data-export/failures.csv', __dir__)
+OVERRIDE_IMPORT  = File.join(DATA_CSV_PATH, '0-overrides.csv')
+RESULTS_OUTPUT   = File.join(DATA_CSV_PATH, '1-results.csv')
+FAILURES_OUTPUT  = File.join(DATA_CSV_PATH, '2-failures.csv')
 
-# Defaults
-DEFAULT_IWAD     = 'doom2.wad'
-TIMEOUT_SECS     = 900
-HEARTBEAT_SECS   = 30
+RESULTS_BACKUP_PATH  = File.join(DATA_CSV_PATH, 'BU-results')
+FAILURES_BACKUP_PATH = File.join(DATA_CSV_PATH, 'BU-failures')
 
 # Known broken demo ZIPs from DSDA that should not be downloaded/extracted.
 # Keys may be scoped as "iwad/wad/zipname.zip" or global as "zipname.zip".
-EXCLUDED_DEMO_ZIPS = {
-  "doom2/doom2/peter_nm100s.zip" => "Known broken ZIP on DSDA server",
-}.freeze
+EXCLUDED_DEMO_ZIPS   = SETTINGS.fetch('excluded_demo_zips').freeze
 
 # Known commercial/master-level WAD defaults.
 # CSV FileOverride entries still win when a demo needs a specific exception.
-AUTO_FILE_OVERRIDES = {
-  "hexen/hexdd"         => ["CM/hexdd.wad"],
-  "doom2/hell2pay"      => ["CM/HTP-RAW.WAD"],
-  "doom2/id1"           => ["CM/id1.wad"],
-  "doom2/nerve"         => ["CM/nerve.wad"],
-  "doom2/one-humanity"  => ["CM/one-humanity.wad"],
-
-# Master Levels
-  "doom2/attack_ml"   => ["ML/ATTACK.WAD"],
-  "doom2/blacktwr"    => ["ML/BLACKTWR.WAD"],
-  "doom2/bloodsea"    => ["ML/BLOODSEA.WAD"],
-  "doom2/canyon_ml"   => ["ML/CANYON.WAD"],
-  "doom2/catwalk"     => ["ML/CATWALK.WAD"],
-  "doom2/combine"     => ["ML/COMBINE.WAD"],
-  "doom2/fistula"     => ["ML/FISTULA.WAD"],
-  "doom2/garrison"    => ["ML/GARRISON.WAD"],
-  "doom2/geryon"      => ["ML/GERYON.WAD"],
-  "doom2/manor_ml"    => ["ML/MANOR.WAD"],
-  "doom2/mephisto"    => ["ML/MEPHISTO.WAD"],
-  "doom2/minos"       => ["ML/MINOS.WAD"],
-  "doom2/nessus"      => ["ML/NESSUS.WAD"],
-  "doom2/paradox_ml"  => ["ML/PARADOX.WAD"],
-  "doom2/subspace"    => ["ML/SUBSPACE.WAD"],
-  "doom2/subterra"    => ["ML/SUBTERRA.WAD"],
-  "doom2/teeth"       => ["ML/TEETH.WAD"],
-  "doom2/ttrap"       => ["ML/TTRAP.WAD"],
-  "doom2/vesperas"    => ["ML/VESPERAS.WAD"],
-  "doom2/vergil"      => ["ML/VERGIL.WAD"],
-
-# Special Pwads
-  "doom2/eviternityii" => ["EX/Eviternity II.wad"],
-  "doom2/junkfood4"    => ["EX/Junkfood4.wad"],
-}.freeze
+# Examples: Commercial Wads, Master Levels, Special Pwads (Eviternity II, Junkfood 4)
+AUTO_FILE_OVERRIDES  = SETTINGS.fetch('auto_file_overrides').freeze
 
 # Known folders whose demos are unsupported as a group.
 # The value is written to Comments; the result reason stays "unsupported".
-AUTO_FILE_UNSUPPORTED = {
-  "hexen/hexen10" => "Hexen 1.0",
-  "heretic/heretic10" => "Heretic 1.0",
-}.freeze
+# Example: Heretic 1.0, Hexen 1.0
+AUTO_FILE_UNSUPPORTED = SETTINGS.fetch('auto_file_unsupported').freeze
 
-# Amount of CPU cores to use (default: 50% of total)
-PERCENT_OF_CORES = 0.50
 
 module Utility
   extend self
