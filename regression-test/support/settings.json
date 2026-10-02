@@ -34,6 +34,7 @@
     "doom2/ttrap": ["ML/TTRAP.WAD"],
     "doom2/vesperas": ["ML/VESPERAS.WAD"],
     "doom2/vergil": ["ML/VERGIL.WAD"],
+    "doom2/kdikdizd": ["KDiKDi_A.wad", "KDiKDi_B.wad", "kdikdizd.deh"],
     "doom2/eviternityii": ["EX/Eviternity II.wad"],
     "doom2/junkfood4": ["EX/Junkfood4.wad"]
   },

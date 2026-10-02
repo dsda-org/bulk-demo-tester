@@ -553,8 +553,11 @@ def build_result_row(base:, override:, runtime:)
     action:       runtime[:action],        # override / skip / nil
     reason:       runtime[:reason],
 
-    # Move error AFTER extras per user request
+    # ---------- Error Message -----------
     error:        runtime[:error],
+
+    # ---------- Demo Test Duration -----------
+    test_time:   runtime[:test_time],
 
     # ---------- Override fields ----------
     iwad_override:  override&.dig(:iwad_override),
@@ -712,6 +715,10 @@ def merge_failed_rows_into_results(failed_rows, results_path)
   end
 
   headers = existing_rows.first.keys
+  unless headers.include?('TestTime')
+    headers.insert(headers.index('Error') + 1, 'TestTime')
+    existing_rows.each { |row| row['TestTime'] = nil }
+  end
 
   puts "   Loaded #{existing_rows.size} existing rows"
 
@@ -750,6 +757,7 @@ def merge_failed_rows_into_results(failed_rows, results_path)
       "Action"       => r[:action],
       "Reason"       => r[:reason],
       "Error"        => r[:error],
+      "TestTime"     => r[:test_time],
       "IwadOverride" => r[:iwad_override],
       "FileOverride" => r[:file_override].is_a?(Array) ? r[:file_override].join(', ') : r[:file_override],
       "ExtraArgs"    => in_quotes(r[:extra_args]),
@@ -1760,6 +1768,7 @@ $completed_sets = 0
 $total_wads = wad_groups.size
 $completed_wads = 0
 $remaining_wads = wad_groups.keys.dup
+$active_jobs = 0
 $failure_count = 0
 $regression_count = 0
 
@@ -1781,16 +1790,21 @@ def live_status_label(count, singular, plural = "#{singular}s")
   count == 1 ? singular : plural
 end
 
+def format_status_count(count)
+  count.to_i.to_s.reverse.scan(/.{1,3}/).join(',').reverse
+end
+
 def render_live_status
   return unless $live_status_enabled
 
-  completed, total_sets, completed_wads, remaining_wad, failure_count, regression_count =
+  completed, total_sets, completed_wads, remaining_wad, active_jobs, failure_count, regression_count =
     $progress_mutex.synchronize do
       [
         $completed_sets,
         $total_sets,
         $completed_wads,
         $remaining_wads.first&.dup,
+        $active_jobs,
         $failure_count,
         $regression_count
       ]
@@ -1803,28 +1817,30 @@ def render_live_status
   folders_left = [total_sets - completed, 0].max
   wads_left = [$total_wads - completed_wads, 0].max
   remaining_wad = nil unless wads_left == 1
-  wad_status = "#{wads_left} #{live_status_label(wads_left, 'WAD')} left"
+  wad_status = "#{format_status_count(wads_left)} #{live_status_label(wads_left, 'WAD')} left"
   wad_status += " (#{remaining_wad.join('/')})" if remaining_wad
   elapsed = format_status_duration(Time.now - $global_start_time)
   current_time = Time.now.strftime('%I:%M %p')
 
   first_line = orange(
     "⏳ [#{bar}] #{percent.round(1)}% │ " \
-    "#{folders_left} #{live_status_label(folders_left, 'folder')} left │ " \
+    "#{format_status_count(folders_left)} #{live_status_label(folders_left, 'folder')} left │ " \
     "#{wad_status}"
   )
 
   healthy = failure_count.zero? && regression_count.zero?
   icon = healthy ? '✅' : '❌'
-  failure_text = "#{failure_count} #{live_status_label(failure_count, 'failure')}"
-  regression_text = "#{regression_count} #{live_status_label(regression_count, 'regression')}"
+  failure_text = "#{format_status_count(failure_count)} #{live_status_label(failure_count, 'failure')}"
+  regression_text = "#{format_status_count(regression_count)} #{live_status_label(regression_count, 'regression')}"
   failure_text = failure_count.zero? ? green(failure_text) : red(failure_text)
   regression_text = regression_count.zero? ? green(regression_text) : red(regression_text)
+  running_jobs = "#{format_status_count(active_jobs)} " \
+                 "parallel #{live_status_label(active_jobs, 'test')}"
   second_line = "#{icon} #{failure_text}#{orange(' │ ')}#{regression_text}" \
-                "#{orange(" │ #{current_time} - #{elapsed} elapsed")}"
+                "#{orange(" │ #{running_jobs} │ #{current_time} - #{elapsed} elapsed")}"
 
   status_lines = [
-    orange('🚦 STATUS'),
+    orange('🚦 DEMO TEST STATUS'),
     orange('-' * 70),
     first_line,
     second_line
@@ -2142,6 +2158,7 @@ SKIP_IMMEDIATE = [
 ].map { |s| s.downcase }
 
 Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
+  $progress_mutex.synchronize { $active_jobs += 1 }
   demo_folder_list = wad_groups[[iwad, wadname]]
 
   # One log buffer per WAD
@@ -2203,6 +2220,8 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
       # Process EACH .lmp in the folder
       demo_lmps.each do |lmp_path|
         demo_name = File.basename(lmp_path)
+        demo_result_start = local_results.length
+        demo_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         env = nil
         base_info = nil
         override_info = nil
@@ -2666,6 +2685,11 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
               folderpath: demo_folder_path
             }
           )
+        ensure
+          test_time = Process.clock_gettime(Process::CLOCK_MONOTONIC) - demo_started_at
+          local_results[demo_result_start..]&.each do |result|
+            result[:test_time] ||= format_duration(test_time)
+          end
         end
       end
       $progress_mutex.synchronize { $completed_sets += 1 }
@@ -2681,6 +2705,7 @@ Parallel.each(wad_groups.keys, in_threads: MAX_CORES) do |(iwad, wadname)|
     colorize = failed ? method(:red) : method(:green)
 
     $progress_mutex.synchronize do
+      $active_jobs -= 1
       $completed_wads += 1
       $remaining_wads.delete([iwad, wadname])
       $failure_count += local_results.count { |r| r[:match].to_s.start_with?("fail") }
@@ -2853,6 +2878,7 @@ def write_results_csv(sorted, output, merge_failed_only: true)
       NewActual NewResult
       OldActual OldResult
       Match Action Reason Error
+      TestTime
       IwadOverride FileOverride ExtraArgs
       Comments Cmdline FolderPath
     ]
@@ -2881,6 +2907,8 @@ def write_results_csv(sorted, output, merge_failed_only: true)
         r[:action].to_s,
         r[:reason].to_s,
         r[:error].to_s,
+
+        r[:test_time].to_s,
 
         r[:iwad_override].to_s,
         r[:file_override].is_a?(Array) ? r[:file_override].join(', ') : r[:file_override].to_s,
