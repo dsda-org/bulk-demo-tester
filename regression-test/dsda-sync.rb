@@ -16,6 +16,7 @@ options = {
   threads: 1,        # use threads for indexing tool, ruby doesn't like more
   skip_wads: false,
   skip_demos: false,
+  update_info: false,
   refresh_index: false,
   retry_failed: false
 }
@@ -35,6 +36,7 @@ BANNER
 opt.on("--force", "Force overwrite extracted content") { options[:force] = true }
 opt.on("--skip-wads", "Don't download/extract wad zips") { options[:skip_wads] = true }
 opt.on("--skip-demos", "Don't download/extract demo zips") { options[:skip_demos] = true }
+opt.on("--update-info", "Rewrite DSDA-info.txt files for existing local WADs and demos only") { options[:update_info] = true }
 opt.on("--refresh-index", "Ignore cached index and build a new one (recommended: run dsda-index.rb)") { options[:refresh_index] = true }
 opt.on(*DSDA::FAILED_FLAGS, "Retry failed WADs and demos") { options[:retry_failed] = true }
 opt.on("-h", "--h", "--help") { puts opt; exit }
@@ -71,6 +73,83 @@ end
 def demo_zip_name(demo)
   zip_url = (demo['file'] || '').to_s.sub(/^http:/,'https:')
   File.basename(zip_url) rescue "demo_#{demo['id']}.zip"
+end
+
+def wad_info_fields(wad_meta, wad_name, short, iwad, demo_count)
+  {
+    "Name"        => (wad_meta['name'] || wad_name),
+    "ShortName"   => short,
+    "IWAD"        => iwad,
+    "DSDA WAD ID" => (wad_meta['id'].to_s.strip.empty? ? "(none)" : wad_meta['id'].to_s),
+    "URL"         => "https://dsdarchive.com/wads/#{short}",
+    "Authors"     => Array(wad_meta['author'] || wad_meta['authors']).join(", "),
+    "Total demos" => demo_count,
+    "Notes"       => (wad_meta['description'] || "")
+  }
+end
+
+def demo_info_fields(demo, wad_name, short)
+  {
+    "WAD"      => wad_name,
+    "Level"    => demo['level'],
+    "Category" => demo['category'],
+    "Players"  => Array(demo['players']).join(", "),
+    "Engine"   => demo['engine'],
+    "TAS"      => demo['tas'].to_s,
+    "Time"     => demo['time'],
+    "URL"      => "https://dsdarchive.com/wads/#{short}"
+  }
+end
+
+def refresh_existing_info(targets, index)
+  wad_updates = 0
+  demo_updates = 0
+  skipped_wads = 0
+
+  targets.each do |target|
+    wad_slug = target[:wad]
+    wad_meta = target[:meta] || index.fetch('wad_meta', {})[wad_slug]
+    unless wad_meta.is_a?(Hash) && !wad_meta.empty?
+      warn "⚠️ Skipping #{wad_slug}: no cached WAD metadata (re-run dsda-index.rb first)"
+      skipped_wads += 1
+      next
+    end
+
+    short = wad_meta['short_name'] || wad_meta['name'] || wad_slug
+    wad_name = DSDA.safe_name(short)
+    iwad = wad_meta['iwad'] || 'doom2'
+    wad_root = File.join(DEMOS_ROOT, iwad, wad_name)
+    wad_dir = File.join(wad_root, "#{wad_name}-wad")
+
+    unless Dir.exist?(wad_root)
+      skipped_wads += 1
+      next
+    end
+
+    demos = index.fetch('wad_map', {}).fetch(wad_slug, [])
+
+    if Dir.exist?(wad_dir)
+      info_path = File.join(wad_dir, "DSDA-info.txt")
+      DSDA.write_dsda_info(info_path, wad_info_fields(wad_meta, wad_name, short, iwad, demos.length))
+      wad_updates += 1
+    end
+
+    demos.group_by { |demo| File.basename(demo_zip_name(demo), ".zip") }.each do |demo_base, folder_demos|
+      demo_dir = File.join(wad_root, demo_base)
+      next unless Dir.exist?(demo_dir)
+
+      info_path = File.join(demo_dir, "DSDA-info.txt")
+      File.delete(info_path) if File.exist?(info_path)
+      folder_demos.each do |demo|
+        DSDA.write_dsda_info(info_path, demo_info_fields(demo, wad_name, short), append: File.exist?(info_path))
+      end
+      demo_updates += 1
+    end
+  end
+
+  puts "📝 Metadata refresh complete: #{wad_updates} WAD file#{'s' unless wad_updates == 1}, " \
+       "#{demo_updates} demo file#{'s' unless demo_updates == 1} updated; " \
+       "#{skipped_wads} non-local/unavailable WAD#{'s' unless skipped_wads == 1} skipped."
 end
 
 def find_wad_key(wad_map, query)
@@ -245,16 +324,7 @@ def sync_single_wad(wad_slug, state:, force: false, skip_wads: false, skip_demos
     demo_count = cached_index ? (cached_index['wad_map'][short]&.length || 0) : 0
 
     info_path = File.join(wad_dir, "DSDA-info.txt")
-    DSDA.write_dsda_info(info_path, {
-      "Name"        => (wad_meta['name'] || wad_name),
-      "ShortName"   => short,
-      "IWAD"        => iwad,
-      "DSDA WAD ID" => (wad_meta['id'].to_s.strip.empty? ? "(none)" : wad_meta['id'].to_s),
-      "URL"         => "https://dsdarchive.com/wads/#{short}",
-      "Authors"     => Array(wad_meta['author'] || wad_meta['authors']).join(", "),
-      "Total demos" => demo_count,
-      "Notes"       => (wad_meta['description'] || "")
-    })
+    DSDA.write_dsda_info(info_path, wad_info_fields(wad_meta, wad_name, short, iwad, demo_count))
     puts "📝 WAD DSDA-info.txt written to #{DSDA.display_path(info_path)}"
     state['done_wads'][short] = true
     DSDA.save_state(state, DSDA.state_cache_path)
@@ -352,16 +422,10 @@ def sync_single_wad(wad_slug, state:, force: false, skip_wads: false, skip_demos
         File.delete(tmp_zip) if File.exist?(tmp_zip)
 
         # Write demo-specific DSDA-info.txt into the *temp* folder
-        DSDA.write_dsda_info(File.join(temp_demo_folder, "DSDA-info.txt"), {
-          "WAD"     => wad_name,
-          "Level"   => demo['level'],
-          "Category"=> demo['category'],
-          "Players" => Array(demo['players']).join(", "),
-          "Engine"  => demo['engine'],
-          "TAS"     => demo['tas'].to_s,
-          "Time"    => demo['time'],
-          "URL"     => "https://dsdarchive.com/wads/#{short}"
-        })
+        DSDA.write_dsda_info(
+          File.join(temp_demo_folder, "DSDA-info.txt"),
+          demo_info_fields(demo, wad_name, short)
+        )
 
         FileUtils.rm_rf(merged_demo_folder) if force && Dir.exist?(merged_demo_folder)
 
@@ -417,6 +481,12 @@ targets =
   else
     select_sync_targets(raw_query, index)
   end
+
+if options[:update_info]
+  abort("❌ --update-info cannot be combined with --retry-failed") if options[:retry_failed]
+  refresh_existing_info(targets, index)
+  exit 0
+end
 processed = 0
 errors = 0
 sync_start = Time.now

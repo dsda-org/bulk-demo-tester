@@ -69,6 +69,7 @@ overrun_missedbackside_emulate   1
   - `--force` Force overwrite extracted content
   - `--skip-wads` Don't download/extract wad zips
   - `--skip-demos` Don't download/extract demo zips
+  - `--update-info` Rewrite WAD and demo `DSDA-info.txt` files for existing local folders only. Don't download, extract, or create newly indexed WAD/demo folders
   - `--failed-only` / `--retry-failed` Retry only failed demos
   - `--refresh-index` Ignore cached index and build a new one *(recommended: run dsda-index.rb)*
   - `--help` Show commands

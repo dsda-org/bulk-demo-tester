@@ -270,10 +270,11 @@ module DSDA
     end
   end
 
-  def self.write_dsda_info(path, map)
+  def self.write_dsda_info(path, map, append: false)
     FileUtils.mkdir_p(File.dirname(path)) unless Dir.exist?(File.dirname(path))
 
-    File.open(path, 'w') do |f|
+    File.open(path, append ? 'a' : 'w') do |f|
+      f.puts if append
       f.puts "[DSDA INFO]"
       map.each do |k, v|
         f.puts "#{k}: #{v}"
