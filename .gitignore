@@ -173,6 +173,7 @@ regression-test/support/wads/EX/CM/ML/*.wad
 regression-test/support/wads/EX/CM/ML/*.WAD
 regression-test/support/wads/EX/CM/ML/*.txt
 regression-test/support/wads/EX/CM/ML/*.TXT
+regression-test/support/wads/other/**
 
 
 # Ignore super large wads (you must get manually)
