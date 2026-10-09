@@ -94,6 +94,7 @@ def demo_info_fields(demo, wad_name, short)
     "Level"    => demo['level'],
     "Category" => demo['category'],
     "Players"  => Array(demo['players']).join(", "),
+    "Guys"     => demo['guys'],
     "Engine"   => demo['engine'],
     "TAS"      => demo['tas'].to_s,
     "Time"     => demo['time'],

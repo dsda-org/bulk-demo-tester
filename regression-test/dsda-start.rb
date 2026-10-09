@@ -313,6 +313,7 @@ end
 def post_run_prompts(command, args)
   failed_only = args.any? { |arg| %w[--retry-failed --failed-only].include?(arg) }
   compare = args.any? { |arg| %w[--compare].include?(arg) }
+  multiplayer_only = args.include?('--multiplayer-only')
 
   if command == 'sync' && !failed_only && sync_failures?
     if prompt_yes_no('Seems the sync has failed for one or more demos. Would you like to retry syncing failed demos?')
@@ -326,6 +327,7 @@ def post_run_prompts(command, args)
     if prompt_yes_no('Would you like to re-test the failed demos?')
       retry_args = ['--failed-only']
       retry_args << '--compare' if compare
+      retry_args << '--multiplayer-only' if multiplayer_only
       run_program('test', retry_args)
     end
   end

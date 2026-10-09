@@ -86,6 +86,7 @@ overrun_missedbackside_emulate   1
     - `ruby dsda-test.rb av/av01-123` 
   - Options:
     - `--failed-only` / `--retry-failed` run only the demos that failed during the last test (see `regression-test/csv/2-failures.csv`).
+    - `--multiplayer-only` Run only demo folders with more than one player (guys > 1).
     - `--fill-demo-folder` Fill missing DemoFolder values in `0-overrides.csv` and exit.
     - `--port <NAME>` Select a configured port by its full name or nickname and remember it as the active port (for example, `--port dsda-doom` or `--port dsda`).
     - `--port-name <NAME>` Override only the port name recorded in test results; this does not select different executables.

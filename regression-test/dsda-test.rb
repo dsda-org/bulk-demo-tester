@@ -39,6 +39,9 @@ def print_help
       --retry-failed, --failed-only
           Re-run demos listed in failures.csv only.
 
+      --multiplayer-only
+          Run only demo folders with more than one player (guys > 1).
+
       --fill-demo-folder
           Fill missing DemoFolder values in overrides.csv and exit.
 
@@ -123,6 +126,7 @@ end
 
 RUN_ALL_IWADS = ARGV.delete("--all") ? true : false
 LEVELSTAT_COMPARE = ARGV.delete("--compare") ? true : false
+MULTIPLAYER_ONLY = ARGV.delete("--multiplayer-only") ? true : false
 FAILED_ONLY = ARGV.any? { |arg| DSDA.failed_flag?(arg) }
 COMPLEVEL_FILTER = complevel_filter_value&.to_i
 
@@ -137,7 +141,7 @@ unless unknown_flags.empty?
   flag = unknown_flags.first
   double_dash = "--#{flag.delete_prefix('-')}"
   known_flags = %w[
-    --all --compare --retry-failed --failed-only --fill-demo-folder
+    --all --compare --multiplayer-only --retry-failed --failed-only --fill-demo-folder
     --set-exe-path --set-old-exe-path --port --port-name --complevel --cl
   ]
   suggestion = known_flags.include?(double_dash.downcase) ? " Did you mean #{double_dash}?" : ""
@@ -405,6 +409,18 @@ def dsda_info_complevel(demo_folder_path)
   match && match[1].to_i
 rescue SystemCallError, EncodingError
   nil
+end
+
+def dsda_info_multiplayer?(demo_folder_path)
+  info_path = find_child_ci(demo_folder_path, "DSDA-info.txt")
+  return false unless info_path && File.file?(info_path)
+
+  File.foreach(info_path, encoding: 'bom|utf-8').any? do |line|
+    match = line.match(/^\s*Guys\s*:\s*(\d+)\s*$/i)
+    match && match[1].to_i > 1
+  end
+rescue SystemCallError, EncodingError
+  false
 end
 
 def sanitize_cmdline(cmd)
@@ -1731,6 +1747,13 @@ if COMPLEVEL_FILTER
   demo_folders = matched_folders
   excluded = before_filter - demo_folders.size
   puts "🎯 Complevel filter cl#{COMPLEVEL_FILTER}: selected #{demo_folders.size} demo folders (excluded #{excluded})"
+end
+
+if MULTIPLAYER_ONLY
+  before_filter = demo_folders.size
+  demo_folders = demo_folders.select { |folder| dsda_info_multiplayer?(folder) }
+  excluded = before_filter - demo_folders.size
+  puts "🎯 Multiplayer filter: selected #{demo_folders.size} demo folders with Guys > 1 (excluded #{excluded})"
 end
 
 # ============================================================
